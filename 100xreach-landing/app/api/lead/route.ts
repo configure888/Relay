@@ -37,7 +37,7 @@ export async function POST(request: Request) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      source: "viralgrid-landing",
+      source: "100xreach-landing",
       submittedAt: new Date().toISOString(),
       ...clean,
     }),
