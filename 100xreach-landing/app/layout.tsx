@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "VIRAL//GRID — Clipping & Managed Short-Form Distribution",
+  title: "100xReach — Clipping, Mass Posting & Managed Distribution",
   description:
-    "Short-form clipping, managed multi-account publishing and authorized device-fleet operations for brands, creators and campaigns.",
+    "Short-form clipping, high-volume managed publishing and authorized device operations for brands, creators and campaigns.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
