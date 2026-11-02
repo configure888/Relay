@@ -59,3 +59,9 @@ Run the standalone unit tests with Node 22+ using `npm test` in this subdirector
 ## Attribution and duplicate-safe handoff
 
 The campaign form forwards only allowlisted, length-bounded UTM parameters (source, medium, campaign, content, term). It also creates a UUIDv4 lead ID and retains that ID when a failed submission is retried unchanged. The server forwards it in the JSON body and `Idempotency-Key` header. **The receiving CRM must enforce deduplication by lead ID**; the header alone does not prevent duplicates. Only a matching CRM record receipt is shown as success; the receiver must actually persist before acknowledging. No advertising click IDs, cookies, or referrer URLs are collected by this change.
+
+## Frontend readiness and retry behavior
+
+The landing page checks `GET /api/lead` before rendering the campaign-brief form. The endpoint returns only `{ "available": true|false }`, with `Cache-Control: no-store`, and never exposes the configured webhook URL. If configuration is missing, invalid, or the readiness request fails, visitors see an unavailable notice rather than an undeliverable form. This checks configuration syntax, **not** whether the CRM is healthy; an end-to-end persistence test is still required.
+
+Once the form is available, the browser aborts a stalled submission after 12 seconds, restores retry controls, and retains the lead ID when fields have not changed. The receiving CRM must deduplicate by lead ID. No fallback email destination or lead storage was invented.
