@@ -60,7 +60,7 @@ test("campaign attribution is normalized and constrained", () => {
   assert.deepEqual(lead.attribution, { utmSource: "google", utmCampaign: "pilot-nov" });
   assert.throws(() => qualifyLead({ ...good, leadId: "not-a-uuid" }), LeadInputError);
   assert.throws(() => qualifyLead({ ...good, utmCampaign: "x".repeat(121) }), LeadInputError);
-  assert.throws(() => qualifyLead({ ...good, utmMedium: "spam\\u0000" }), LeadInputError);
+  assert.throws(() => qualifyLead({ ...good, utmMedium: "spam\u0000" }), LeadInputError);
 });
 
 test("webhook forwards a stable lead ID for receiver-side deduplication", async () => {
