@@ -47,3 +47,11 @@ The frontend emits `cta_click`, `lead_submit`, `lead_success`, and `lead_error`.
 ## Deployment
 
 Recommended: create a Vercel project using `100xreach-landing` as the project root and configure `LEAD_WEBHOOK_URL` in the deployment environment.
+
+## Delivery reliability and launch gate
+
+The lead endpoint validates exact service/volume/goal choices, caps JSON submissions at 8 KiB, rejects invalid content types, and requires a public HTTPS webhook without credentials in its URL. It disables redirects, enforces an 8-second timeout, and reports a failed delivery as an error rather than a successful enquiry. No lead details are logged.
+
+**A 2xx webhook response means the downstream service accepted the request, not proof of durable CRM storage.** Before launch, configure LEAD_WEBHOOK_URL as a server-only secret, verify the receiver durably stores enquiries and rejects duplicates, and run a real test submission end-to-end. There is no built-in rate limiter or queue; add these at the hosting/CRM layer for high traffic. The form remains unavailable without a configured webhook.
+
+Run the standalone unit tests with Node 22+ using `npm test` in this subdirectory.

@@ -363,7 +363,7 @@ export default function Home() {
             <label><span>Anything we should know? <em>Optional</em></span><textarea name="brief" rows={3} placeholder="Content source, platforms, current bottleneck…"/></label>
             <button className="submit" type="submit"><span>{state === "sending" ? "Sending…" : state === "sent" ? "Brief sent" : formCta}</span><b>{state === "sent" ? "✓" : "↗"}</b></button>
             {state === "sent" && <p className="status ok">Brief received. We have the scope inputs.</p>}
-            {state === "error" && <p className="status bad">Could not send. Check the lead webhook configuration and try again.</p>}
+            {state === "error" && <p className="status bad">Could not send your brief. Please try again shortly.</p>}
             <p className="form-note">APPROVED ACCOUNTS ONLY / NO BOT VIEWS / NO PURCHASED ENGAGEMENT / SCOPE FIRST</p>
           </form>
         </section>

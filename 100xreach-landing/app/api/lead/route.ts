@@ -1,52 +1,32 @@
 import { NextResponse } from "next/server";
+import { forwardLead, LeadInputError, qualifyLead, readLeadJson, validateWebhookUrl } from "./core";
 
-const allowedKeys = new Set(["name", "email", "service", "volume", "goal", "brief"]);
+export const runtime = "nodejs";
 
 export async function POST(request: Request) {
-  const webhookUrl = process.env.LEAD_WEBHOOK_URL;
-  if (!webhookUrl) {
-    return NextResponse.json({ ok: false, error: "Lead webhook is not configured." }, { status: 503 });
-  }
-
-  let body: Record<string, unknown>;
+  // Fail closed before accepting data. Do not expose configuration details to visitors.
+  let webhook: URL;
   try {
-    body = await request.json();
+    webhook = validateWebhookUrl(process.env.LEAD_WEBHOOK_URL);
   } catch {
-    return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 });
+    console.error("100xReach lead delivery is not configured correctly");
+    return NextResponse.json({ ok: false, error: "Submission is temporarily unavailable." }, { status: 503 });
   }
 
-  if (typeof body.companyWebsite === "string" && body.companyWebsite.trim()) {
+  try {
+    const result = qualifyLead(await readLeadJson(request));
+    if (result.kind === "honeypot") return NextResponse.json({ ok: true });
+    const accepted = await forwardLead(webhook, result.lead);
+    if (!accepted) {
+      console.error("100xReach lead webhook returned a non-success status");
+      return NextResponse.json({ ok: false, error: "Submission could not be delivered. Please try again." }, { status: 502 });
+    }
     return NextResponse.json({ ok: true });
+  } catch (error) {
+    if (error instanceof LeadInputError) {
+      return NextResponse.json({ ok: false, error: error.message }, { status: error.status });
+    }
+    console.error("100xReach lead delivery failed", error instanceof Error ? error.name : "unknown error");
+    return NextResponse.json({ ok: false, error: "Submission could not be delivered. Please try again." }, { status: 502 });
   }
-
-  const clean: Record<string, string> = {};
-  for (const [key, value] of Object.entries(body)) {
-    if (!allowedKeys.has(key) || typeof value !== "string") continue;
-    clean[key] = value.trim().slice(0, key === "brief" ? 2000 : 300);
-  }
-
-  if (!clean.name || !clean.email || !clean.service || !clean.volume || !clean.goal) {
-    return NextResponse.json({ ok: false, error: "Missing required lead fields." }, { status: 400 });
-  }
-
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean.email)) {
-    return NextResponse.json({ ok: false, error: "Invalid email." }, { status: 400 });
-  }
-
-  const response = await fetch(webhookUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      source: "100xreach-landing",
-      submittedAt: new Date().toISOString(),
-      ...clean,
-    }),
-    cache: "no-store",
-  });
-
-  if (!response.ok) {
-    return NextResponse.json({ ok: false, error: "Lead webhook rejected the submission." }, { status: 502 });
-  }
-
-  return NextResponse.json({ ok: true });
 }
