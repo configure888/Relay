@@ -65,3 +65,9 @@ The campaign form forwards only allowlisted, length-bounded UTM parameters (sour
 The landing page checks `GET /api/lead` before rendering the campaign-brief form. The endpoint returns only `{ "available": true|false }`, with `Cache-Control: no-store`, and never exposes the configured webhook URL. If configuration is missing, invalid, or the readiness request fails, visitors see an unavailable notice rather than an undeliverable form. This checks configuration syntax, **not** whether the CRM is healthy; an end-to-end persistence test is still required.
 
 Once the form is available, the browser aborts a stalled submission after 12 seconds, restores retry controls, and retains the lead ID when fields have not changed. The receiving CRM must deduplicate by lead ID. No fallback email destination or lead storage was invented.
+
+## Decorative 3D performance budget
+
+The WebGL hero is decorative, not a dependency for reading the offer or submitting a brief. It is mounted only after client hydration on viewports **821px or wider**, when reduced motion and data saver are off and any reported device memory/CPU hints meet the minimum (4 GiB / 4 logical cores). Browsers without hardware hints remain eligible. The static brand gradients, headline and calls to action remain visible everywhere. Resizing or changing reduced-motion preferences updates eligibility and unmounts the canvas when no longer appropriate. This avoids loading the Three.js hero chunk and creating a GPU context on mobile/constrained devices; it is **not** a measured Core Web Vitals improvement until tested in real browsers.
+
+Run `npm test` to exercise the hero eligibility matrix alongside the lead tests. Validate the hero and CTA contrast on real desktop/mobile browsers before production promotion.
