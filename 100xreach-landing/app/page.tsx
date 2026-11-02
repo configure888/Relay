@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { shouldRenderHeroScene } from "@/lib/hero-capability";
 import { useEffect, useRef, useState } from "react";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
@@ -78,6 +79,7 @@ export default function Home() {
   const [service, setService] = useState("");
   const [state, setState] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [delivery, setDelivery] = useState<"checking" | "available" | "unavailable">("checking");
+  const [renderHeroScene, setRenderHeroScene] = useState(false);
 
   const track = (event: string, payload: Record<string, unknown> = {}) => {
     if (typeof window === "undefined") return;
@@ -139,6 +141,33 @@ export default function Home() {
     return () => controller.abort();
   }, []);
 
+  // The 3D rig is decorative. Defer its entire Three.js chunk and GPU canvas on
+  // mobile, reduced-motion, data-saver and low-resource devices.
+  useEffect(() => {
+    const wideViewport = window.matchMedia("(min-width: 821px)");
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const update = () => {
+      const hints = navigator as Navigator & {
+        connection?: { saveData?: boolean };
+        deviceMemory?: number;
+      };
+      setRenderHeroScene(shouldRenderHeroScene({
+        isWideViewport: wideViewport.matches,
+        reducedMotion: reducedMotion.matches,
+        saveData: hints.connection?.saveData === true,
+        deviceMemoryGB: hints.deviceMemory,
+        hardwareConcurrency: navigator.hardwareConcurrency,
+      }));
+    };
+    update();
+    wideViewport.addEventListener("change", update);
+    reducedMotion.addEventListener("change", update);
+    return () => {
+      wideViewport.removeEventListener("change", update);
+      reducedMotion.removeEventListener("change", update);
+    };
+  }, []);
+
   useEffect(() => {
     const move = (e: PointerEvent) => {
       root.current?.style.setProperty("--x", `${e.clientX}px`);
@@ -168,7 +197,7 @@ export default function Home() {
       <main>
         <section id="top" className="hero">
           <div className="hero-grid" />
-          <div className="hero-scene"><HeroScene /></div>
+          <div className="hero-scene" aria-hidden="true">{renderHeroScene ? <HeroScene /> : null}</div>
           <div className="hero-copy">
             <p className="kicker hero-in">SHORT-FORM DISTRIBUTION / CLIPPING / DEVICE OPS</p>
             <h1>
