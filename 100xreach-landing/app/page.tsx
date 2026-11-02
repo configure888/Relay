@@ -77,6 +77,7 @@ export default function Home() {
   const leadIdRef = useRef<string | null>(null);
   const [service, setService] = useState("");
   const [state, setState] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [delivery, setDelivery] = useState<"checking" | "available" | "unavailable">("checking");
 
   const track = (event: string, payload: Record<string, unknown> = {}) => {
     if (typeof window === "undefined") return;
@@ -128,6 +129,15 @@ export default function Home() {
     });
     return () => mm.revert();
   }, { scope: root });
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/lead", { method: "GET", cache: "no-store", signal: controller.signal })
+      .then(async (response) => response.ok ? response.json() : null)
+      .then((result) => { if (!controller.signal.aborted) setDelivery(result?.available === true ? "available" : "unavailable"); })
+      .catch(() => { if (!controller.signal.aborted) setDelivery("unavailable"); });
+    return () => controller.abort();
+  }, []);
 
   useEffect(() => {
     const move = (e: PointerEvent) => {
@@ -315,7 +325,7 @@ export default function Home() {
             <div className="contact-meta">CLIPPING / MASS POSTING / DEVICE OPS / REPORTING</div>
           </div>
 
-          <form className="lead-form reveal" onChange={() => { if (state === "error") leadIdRef.current = null; }} onSubmit={async (e) => {
+          {delivery === "available" ? <form className="lead-form reveal" aria-busy={state === "sending"} onChange={() => { if (state === "error") leadIdRef.current = null; }} onSubmit={async (e) => {
             e.preventDefault();
             if (state === "sending") return;
             const form = e.currentTarget;
@@ -330,8 +340,10 @@ export default function Home() {
             const payload = { ...Object.fromEntries(new FormData(form).entries()), leadId, ...attribution };
             setState("sending");
             track("lead_submit", { service: payload.service, volume: payload.volume });
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 12000);
             try {
-              const res = await fetch("/api/lead", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+              const res = await fetch("/api/lead", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload), signal: controller.signal, redirect: "error" });
               if (!res.ok) throw new Error("submit");
               setState("sent");
               track("lead_success", { service: payload.service });
@@ -341,6 +353,8 @@ export default function Home() {
             } catch {
               setState("error");
               track("lead_error");
+            } finally {
+              clearTimeout(timeout);
             }
           }}>
             <div className="form-head"><span>CAMPAIGN BRIEF</span><span>100X/26</span></div>
@@ -371,11 +385,15 @@ export default function Home() {
               <option>Build an always-on content operation</option>
             </select></label>
             <label><span>Anything we should know? <em>Optional</em></span><textarea name="brief" rows={3} placeholder="Content source, platforms, current bottleneck…"/></label>
-            <button className="submit" type="submit"><span>{state === "sending" ? "Sending…" : state === "sent" ? "Brief sent" : formCta}</span><b>{state === "sent" ? "✓" : "↗"}</b></button>
-            {state === "sent" && <p className="status ok">Brief received. We have the scope inputs.</p>}
-            {state === "error" && <p className="status bad">Could not send your brief. Please try again shortly.</p>}
+            <button className="submit" type="submit" disabled={state === "sending" || state === "sent"}><span>{state === "sending" ? "Sending…" : state === "sent" ? "Brief sent" : formCta}</span><b>{state === "sent" ? "✓" : "↗"}</b></button>
+            {state === "sent" && <p className="status ok" role="status">Brief received. We have the scope inputs.</p>}
+            {state === "error" && <p className="status bad" role="alert">Delivery could not be confirmed. Please retry; unchanged details keep the same lead ID.</p>}
             <p className="form-note">APPROVED ACCOUNTS ONLY / NO BOT VIEWS / NO PURCHASED ENGAGEMENT / SCOPE FIRST</p>
-          </form>
+          </form> : <div className="lead-unavailable" role="status" aria-live="polite">
+            <div className="form-head"><span>CAMPAIGN BRIEF</span><span>100X/26</span></div>
+            <h3>{delivery === "checking" ? "Checking secure delivery…" : "Campaign briefs temporarily unavailable"}</h3>
+            <p>{delivery === "checking" ? "Verifying the enquiry destination before collecting your details." : "Our secure enquiry destination is not configured right now. We are not collecting personal details until delivery is available. Please check back shortly."}</p>
+          </div>}
         </section>
       </main>
 
