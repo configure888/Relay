@@ -3,12 +3,14 @@ export const MAX_LEAD_BYTES = 8192;
 export const WEBHOOK_TIMEOUT_MS = 8000;
 
 export type Lead = {
+  leadId: string;
   name: string;
   email: string;
   service: string;
   volume: string;
   goal: string;
   brief?: string;
+  attribution?: Record<string, string>;
 };
 
 export class LeadInputError extends Error {
@@ -100,11 +102,18 @@ export function qualifyLead(raw: unknown): { kind: "honeypot" } | { kind: "valid
   const volume = read("volume", 80);
   const goal = read("goal", 120);
   const brief = read("brief", 2000, false);
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
+  const leadId = body.leadId === undefined ? crypto.randomUUID() : read("leadId", 36);
+  const attribution: Record<string, string> = {};
+  for (const key of ["utmSource", "utmMedium", "utmCampaign", "utmContent", "utmTerm"]) {
+    const value = read(key, 120, false);
+    if (value) attribution[key] = value;
+  }
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(leadId) ||
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
       !serviceOptions.has(service) || !volumeOptions.has(volume) || !goalOptions.has(goal)) {
     throw new LeadInputError("Invalid lead fields.", 400);
   }
-  return { kind: "valid", lead: { name, email, service, volume, goal, ...(brief ? { brief } : {}) } };
+  return { kind: "valid", lead: { leadId, name, email, service, volume, goal, ...(brief ? { brief } : {}), ...(Object.keys(attribution).length ? { attribution } : {}) } };
 }
 
 export function validateWebhookUrl(raw: string | undefined): URL {
@@ -128,7 +137,7 @@ export async function forwardLead(
 ): Promise<boolean> {
   const response = await transport(url.toString(), {
     method: "POST",
-    headers: { "Content-Type": "application/json", "Accept": "application/json" },
+    headers: { "Content-Type": "application/json", "Accept": "application/json", "Idempotency-Key": lead.leadId },
     body: JSON.stringify({ source: "100xreach-landing", submittedAt: new Date().toISOString(), ...lead }),
     redirect: "error",
     cache: "no-store",

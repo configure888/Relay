@@ -55,3 +55,7 @@ The lead endpoint validates exact service/volume/goal choices, caps JSON submiss
 **A 2xx webhook response means the downstream service accepted the request, not proof of durable CRM storage.** Before launch, configure LEAD_WEBHOOK_URL as a server-only secret, verify the receiver durably stores enquiries and rejects duplicates, and run a real test submission end-to-end. There is no built-in rate limiter or queue; add these at the hosting/CRM layer for high traffic. The form remains unavailable without a configured webhook.
 
 Run the standalone unit tests with Node 22+ using `npm test` in this subdirectory.
+
+## Attribution and duplicate-safe handoff
+
+The campaign form forwards only allowlisted, length-bounded UTM parameters (source, medium, campaign, content, term). It also creates a UUIDv4 lead ID and retains that ID when a failed submission is retried unchanged. The server forwards it in the JSON body and `Idempotency-Key` header. **The receiving CRM must enforce deduplication by lead ID**; the header alone does not prevent duplicates. A 2xx response still does not establish durable storage. No advertising click IDs, cookies, or referrer URLs are collected by this change.

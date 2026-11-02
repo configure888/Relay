@@ -74,6 +74,7 @@ const phones = Array.from({ length: 28 }, (_, i) => ({
 
 export default function Home() {
   const root = useRef<HTMLDivElement>(null);
+  const leadIdRef = useRef<string | null>(null);
   const [service, setService] = useState("");
   const [state, setState] = useState<"idle" | "sending" | "sent" | "error">("idle");
 
@@ -314,11 +315,19 @@ export default function Home() {
             <div className="contact-meta">CLIPPING / MASS POSTING / DEVICE OPS / REPORTING</div>
           </div>
 
-          <form className="lead-form reveal" onSubmit={async (e) => {
+          <form className="lead-form reveal" onChange={() => { if (state === "error") leadIdRef.current = null; }} onSubmit={async (e) => {
             e.preventDefault();
             if (state === "sending") return;
             const form = e.currentTarget;
-            const payload = Object.fromEntries(new FormData(form).entries());
+            const params = new URLSearchParams(window.location.search);
+            const attribution = Object.fromEntries(
+              [["utmSource", "utm_source"], ["utmMedium", "utm_medium"], ["utmCampaign", "utm_campaign"], ["utmContent", "utm_content"], ["utmTerm", "utm_term"]]
+                .map(([field, param]) => [field, params.get(param)?.slice(0, 120) || ""])
+                .filter(([, value]) => Boolean(value))
+            );
+            const leadId = leadIdRef.current ?? crypto.randomUUID();
+            leadIdRef.current = leadId;
+            const payload = { ...Object.fromEntries(new FormData(form).entries()), leadId, ...attribution };
             setState("sending");
             track("lead_submit", { service: payload.service, volume: payload.volume });
             try {
@@ -327,6 +336,7 @@ export default function Home() {
               setState("sent");
               track("lead_success", { service: payload.service });
               form.reset();
+              leadIdRef.current = null;
               setService("");
             } catch {
               setState("error");

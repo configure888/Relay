@@ -52,3 +52,25 @@ test("non-2xx webhook is not reported as success", async () => {
 test("network rejection propagates to route for 502 handling", async () => {
   await assert.rejects(forwardLead(validateWebhookUrl("https://crm.example.com"), qualifyLead(good).lead, async () => { throw new Error("network"); }), /network/);
 });
+
+test("campaign attribution is normalized and constrained", () => {
+  const id = "f3d10aa8-7e0a-4d35-a3f2-38b2796b2b18";
+  const lead = qualifyLead({ ...good, leadId: id, utmSource: "  google  ", utmCampaign: "pilot-nov", utmTerm: "" }).lead;
+  assert.equal(lead.leadId, id);
+  assert.deepEqual(lead.attribution, { utmSource: "google", utmCampaign: "pilot-nov" });
+  assert.throws(() => qualifyLead({ ...good, leadId: "not-a-uuid" }), LeadInputError);
+  assert.throws(() => qualifyLead({ ...good, utmCampaign: "x".repeat(121) }), LeadInputError);
+  assert.throws(() => qualifyLead({ ...good, utmMedium: "spam\\u0000" }), LeadInputError);
+});
+
+test("webhook forwards a stable lead ID for receiver-side deduplication", async () => {
+  const lead = qualifyLead({ ...good, leadId: "f3d10aa8-7e0a-4d35-a3f2-38b2796b2b18", utmMedium: "paid-social" }).lead;
+  const captured = [];
+  const transport = async (_url, init) => { captured.push(init); return new Response(null, { status: 202 }); };
+  await forwardLead(validateWebhookUrl("https://crm.example.com/lead"), lead, transport);
+  await forwardLead(validateWebhookUrl("https://crm.example.com/lead"), lead, transport);
+  assert.equal(captured[0].headers["Idempotency-Key"], lead.leadId);
+  assert.equal(captured[1].headers["Idempotency-Key"], lead.leadId);
+  assert.equal(JSON.parse(captured[0].body).leadId, lead.leadId);
+  assert.equal(JSON.parse(captured[0].body).attribution.utmMedium, "paid-social");
+});
