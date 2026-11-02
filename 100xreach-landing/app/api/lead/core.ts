@@ -130,6 +130,48 @@ export function validateWebhookUrl(raw: string | undefined): URL {
   return url;
 }
 
+
+export const MAX_RECEIPT_BYTES = 2048;
+
+/**
+ * A webhook acknowledgement is not proof of persistence. Only a bounded,
+ * matching CRM record receipt can trigger a customer-facing success state.
+ */
+export async function hasDurableReceipt(response: Response, leadId: string): Promise<boolean> {
+  if (!response.ok || !/^application\/json(?:\s*;|\s*$)/i.test(response.headers.get("content-type") || "")) return false;
+  const length = response.headers.get("content-length");
+  if (length !== null && (!/^\d+$/.test(length) || Number(length) > MAX_RECEIPT_BYTES)) return false;
+  if (!response.body) return false;
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  let bytes = 0;
+  let text = "";
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > MAX_RECEIPT_BYTES) {
+        void reader.cancel().catch(() => {});
+        return false;
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+    text += decoder.decode();
+    const receipt: unknown = JSON.parse(text);
+    if (!receipt || typeof receipt !== "object" || Array.isArray(receipt)) return false;
+    const record = receipt as Record<string, unknown>;
+    return record.ok === true && record.stored === true && record.leadId === leadId &&
+      typeof record.receiptId === "string" && record.receiptId.length > 0 &&
+      record.receiptId.length <= 128 && !/[\u0000-\u001F\u007F]/.test(record.receiptId);
+  } catch {
+    return false;
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 export async function forwardLead(
   url: URL,
   lead: Lead,
@@ -143,5 +185,5 @@ export async function forwardLead(
     cache: "no-store",
     signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
   });
-  return response.ok;
+  return hasDurableReceipt(response, lead.leadId);
 }
