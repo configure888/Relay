@@ -421,7 +421,8 @@ export default function Home() {
           </form> : <div className="lead-unavailable" role="status" aria-live="polite">
             <div className="form-head"><span>CAMPAIGN BRIEF</span><span>100X/26</span></div>
             <h3>{delivery === "checking" ? "Checking secure delivery…" : "Campaign briefs temporarily unavailable"}</h3>
-            <p>{delivery === "checking" ? "Verifying the enquiry destination before collecting your details." : "Our secure enquiry destination is not configured right now. We are not collecting personal details until delivery is available. Please check back shortly."}</p>
+            <p>{delivery === "checking" ? "Verifying the enquiry destination before collecting your details." : "The secure campaign-brief form is temporarily unavailable. You can still contact Relay Digital directly by email; your email app will open a draft for you to review and send."}</p>
+            {delivery === "unavailable" && <a className="email-fallback" href="mailto:support@relaydigital.agency?subject=100xReach%20campaign%20enquiry&body=Hi%20Relay%20Digital%2C%0A%0AWe%27d%20like%20to%20discuss%20a%20100xReach%20campaign.%0A%0AOur%20content%20source%3A%20%0ATarget%20platforms%3A%20%0AMonthly%20output%3A%20%0AGoal%3A%20%0A%0A" onClick={() => track("cta_click", { placement: "email_fallback" })}>Email the campaign team ↗</a>}
           </div>}
         </section>
       </main>
