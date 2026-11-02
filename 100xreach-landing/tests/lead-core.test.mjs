@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { forwardLead, LeadInputError, qualifyLead, readLeadJson, validateWebhookUrl, MAX_LEAD_BYTES } from "../app/api/lead/core.ts";
+import { forwardLead, LeadInputError, qualifyLead, readLeadJson, validateWebhookUrl, MAX_LEAD_BYTES, MAX_RECEIPT_BYTES } from "../app/api/lead/core.ts";
 
 const good = { name: "Taylor Client", email: "TAYLOR@example.com", service: "Clipping + creative versioning", volume: "100–500 posts / month", goal: "More distribution / posting volume", brief: "Please call" };
+const durableReceipt = (leadId, receiptId = "crm-123", status = 201) => Response.json({ ok: true, stored: true, leadId, receiptId }, { status });
 const req = (body, headers = {}) => new Request("https://example.com/api/lead", { method: "POST", headers: { "Content-Type": "application/json", ...headers }, body });
 
 test("valid form matches frontend and normalizes email", () => {
@@ -37,7 +38,7 @@ test("delivery sends exact qualified fields and disallows redirects", async () =
   const success = await forwardLead(validateWebhookUrl("https://crm.example.com/lead"), qualifyLead(good).lead, async (url, init) => {
     assert.equal(url, "https://crm.example.com/lead");
     options = init;
-    return new Response(null, { status: 202 });
+    return durableReceipt(JSON.parse(init.body).leadId);
   });
   assert.equal(success, true);
   assert.equal(options.redirect, "error");
@@ -66,11 +67,48 @@ test("campaign attribution is normalized and constrained", () => {
 test("webhook forwards a stable lead ID for receiver-side deduplication", async () => {
   const lead = qualifyLead({ ...good, leadId: "f3d10aa8-7e0a-4d35-a3f2-38b2796b2b18", utmMedium: "paid-social" }).lead;
   const captured = [];
-  const transport = async (_url, init) => { captured.push(init); return new Response(null, { status: 202 }); };
+  const transport = async (_url, init) => { captured.push(init); return durableReceipt(JSON.parse(init.body).leadId); };
   await forwardLead(validateWebhookUrl("https://crm.example.com/lead"), lead, transport);
   await forwardLead(validateWebhookUrl("https://crm.example.com/lead"), lead, transport);
   assert.equal(captured[0].headers["Idempotency-Key"], lead.leadId);
   assert.equal(captured[1].headers["Idempotency-Key"], lead.leadId);
   assert.equal(JSON.parse(captured[0].body).leadId, lead.leadId);
   assert.equal(JSON.parse(captured[0].body).attribution.utmMedium, "paid-social");
+});
+
+
+test("2xx webhook without a durable receipt never reports a lead captured", async () => {
+  const lead = qualifyLead(good).lead;
+  const endpoint = validateWebhookUrl("https://crm.example.com/lead");
+  for (const response of [
+    new Response(null, { status: 204 }),
+    new Response("accepted", { status: 200 }),
+    Response.json({ ok: true }, { status: 200 }),
+    Response.json({ ok: true, stored: false, leadId: lead.leadId, receiptId: "123" }),
+    Response.json({ ok: true, stored: true, leadId: "different", receiptId: "123" }),
+    Response.json({ ok: true, stored: true, leadId: lead.leadId }),
+    new Response("{broken", { status: 200, headers: { "content-type": "application/json" } }),
+  ]) {
+    assert.equal(await forwardLead(endpoint, lead, async () => response), false);
+  }
+});
+
+test("bounded receipt parsing rejects forged and declared oversize responses", async () => {
+  const lead = qualifyLead(good).lead;
+  const endpoint = validateWebhookUrl("https://crm.example.com/lead");
+  const tooLarge = JSON.stringify({ ok: true, stored: true, leadId: lead.leadId, receiptId: "x".repeat(MAX_RECEIPT_BYTES) });
+  assert.equal(await forwardLead(endpoint, lead, async () => new Response(tooLarge, {
+    headers: { "content-type": "application/json" },
+  })), false);
+  assert.equal(await forwardLead(endpoint, lead, async () => new Response("{}", {
+    headers: { "content-type": "application/json", "content-length": String(MAX_RECEIPT_BYTES + 1) },
+  })), false);
+});
+
+test("valid persisted receipt must match leadId and include a CRM record ID", async () => {
+  const lead = qualifyLead(good).lead;
+  const endpoint = validateWebhookUrl("https://crm.example.com/lead");
+  assert.equal(await forwardLead(endpoint, lead, async () => durableReceipt(lead.leadId, "crm-123", 201)), true);
+  assert.equal(await forwardLead(endpoint, lead, async () => durableReceipt(lead.leadId, "crm-123", 200)), true);
+  assert.equal(await forwardLead(endpoint, lead, async () => durableReceipt(lead.leadId, "\u0000bad")), false);
 });
