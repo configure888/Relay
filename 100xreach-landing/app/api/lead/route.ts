@@ -1,7 +1,15 @@
 import { NextResponse } from "next/server";
-import { forwardLead, LeadInputError, qualifyLead, readLeadJson, validateWebhookUrl } from "./core";
+import { forwardLead, isLeadDeliveryConfigured, LeadInputError, qualifyLead, readLeadJson, validateWebhookUrl } from "./core";
 
 export const runtime = "nodejs";
+
+// Public readiness is boolean-only: never disclose the webhook URL.
+export async function GET() {
+  return NextResponse.json(
+    { available: isLeadDeliveryConfigured(process.env.LEAD_WEBHOOK_URL) },
+    { headers: { "Cache-Control": "no-store" } },
+  );
+}
 
 export async function POST(request: Request) {
   // Fail closed before accepting data. Do not expose configuration details to visitors.
