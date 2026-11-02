@@ -112,3 +112,11 @@ test("valid persisted receipt must match leadId and include a CRM record ID", as
   assert.equal(await forwardLead(endpoint, lead, async () => durableReceipt(lead.leadId, "crm-123", 200)), true);
   assert.equal(await forwardLead(endpoint, lead, async () => durableReceipt(lead.leadId, "\u0000bad")), false);
 });
+
+test("form readiness fails closed without a validated HTTPS receiver", async () => {
+  const { isLeadDeliveryConfigured } = await import("../app/api/lead/core.ts");
+  for (const raw of [undefined, "", "http://crm.example.com/lead", "https://localhost/lead", "https://127.0.0.1/lead", "https://user:pass@crm.example.com/lead", "invalid"]) {
+    assert.equal(isLeadDeliveryConfigured(raw), false);
+  }
+  assert.equal(isLeadDeliveryConfigured("https://crm.example.com/lead"), true);
+});
