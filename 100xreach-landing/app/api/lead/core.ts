@@ -187,3 +187,13 @@ export async function forwardLead(
   });
   return hasDurableReceipt(response, lead.leadId);
 }
+
+/** Only advertise the form when a validated server-side delivery destination exists. */
+export function isLeadDeliveryConfigured(raw: string | undefined): boolean {
+  try {
+    validateWebhookUrl(raw);
+    return true;
+  } catch {
+    return false;
+  }
+}
