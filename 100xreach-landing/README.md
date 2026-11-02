@@ -47,3 +47,27 @@ The frontend emits `cta_click`, `lead_submit`, `lead_success`, and `lead_error`.
 ## Deployment
 
 Recommended: create a Vercel project using `100xreach-landing` as the project root and configure `LEAD_WEBHOOK_URL` in the deployment environment.
+
+## Delivery reliability and launch gate
+
+The lead endpoint validates exact service/volume/goal choices, caps JSON submissions at 8 KiB, rejects invalid content types, and requires a public HTTPS webhook without credentials in its URL. It disables redirects, enforces an 8-second timeout, and reports a failed delivery as an error rather than a successful enquiry. No lead details are logged.
+
+**A 2xx response alone is not sufficient.** The webhook must durably store the lead, deduplicate on the supplied UUIDv4 `leadId`, and return JSON `{ "ok": true, "stored": true, "leadId": "<same UUID>", "receiptId": "<durable CRM record ID>" }` with HTTP 2xx and `Content-Type: application/json`. Responses without a matching durable receipt (or over 2 KiB) are treated as failures. Before launch, configure `LEAD_WEBHOOK_URL` as a server-only secret and run an end-to-end synthetic submission. There is no built-in rate limiter or queue; add these at the hosting/CRM layer for high traffic. The form remains unavailable without a configured webhook.
+
+Run the standalone unit tests with Node 22+ using `npm test` in this subdirectory.
+
+## Attribution and duplicate-safe handoff
+
+The campaign form forwards only allowlisted, length-bounded UTM parameters (source, medium, campaign, content, term). It also creates a UUIDv4 lead ID and retains that ID when a failed submission is retried unchanged. The server forwards it in the JSON body and `Idempotency-Key` header. **The receiving CRM must enforce deduplication by lead ID**; the header alone does not prevent duplicates. Only a matching CRM record receipt is shown as success; the receiver must actually persist before acknowledging. No advertising click IDs, cookies, or referrer URLs are collected by this change.
+
+## Frontend readiness and retry behavior
+
+The landing page checks `GET /api/lead` before rendering the campaign-brief form. The endpoint returns only `{ "available": true|false }`, with `Cache-Control: no-store`, and never exposes the configured webhook URL. If configuration is missing, invalid, or the readiness request fails, visitors see an unavailable notice rather than an undeliverable form. This checks configuration syntax, **not** whether the CRM is healthy; an end-to-end persistence test is still required.
+
+Once the form is available, the browser aborts a stalled submission after 12 seconds, restores retry controls, and retains the lead ID when fields have not changed. The receiving CRM must deduplicate by lead ID. No fallback email destination or lead storage was invented.
+
+## Decorative 3D performance budget
+
+The WebGL hero is decorative, not a dependency for reading the offer or submitting a brief. It is mounted only after client hydration on viewports **821px or wider**, when reduced motion and data saver are off and any reported device memory/CPU hints meet the minimum (4 GiB / 4 logical cores). Browsers without hardware hints remain eligible. The static brand gradients, headline and calls to action remain visible everywhere. Resizing or changing reduced-motion preferences updates eligibility and unmounts the canvas when no longer appropriate. This avoids loading the Three.js hero chunk and creating a GPU context on mobile/constrained devices; it is **not** a measured Core Web Vitals improvement until tested in real browsers.
+
+Run `npm test` to exercise the hero eligibility matrix alongside the lead tests. Validate the hero and CTA contrast on real desktop/mobile browsers before production promotion.

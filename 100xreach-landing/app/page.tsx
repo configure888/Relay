@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { shouldRenderHeroScene } from "@/lib/hero-capability";
 import { useEffect, useRef, useState } from "react";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
@@ -74,8 +75,11 @@ const phones = Array.from({ length: 28 }, (_, i) => ({
 
 export default function Home() {
   const root = useRef<HTMLDivElement>(null);
+  const leadIdRef = useRef<string | null>(null);
   const [service, setService] = useState("");
   const [state, setState] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [delivery, setDelivery] = useState<"checking" | "available" | "unavailable">("checking");
+  const [renderHeroScene, setRenderHeroScene] = useState(false);
 
   const track = (event: string, payload: Record<string, unknown> = {}) => {
     if (typeof window === "undefined") return;
@@ -129,6 +133,42 @@ export default function Home() {
   }, { scope: root });
 
   useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/lead", { method: "GET", cache: "no-store", signal: controller.signal })
+      .then(async (response) => response.ok ? response.json() : null)
+      .then((result) => { if (!controller.signal.aborted) setDelivery(result?.available === true ? "available" : "unavailable"); })
+      .catch(() => { if (!controller.signal.aborted) setDelivery("unavailable"); });
+    return () => controller.abort();
+  }, []);
+
+  // The 3D rig is decorative. Defer its entire Three.js chunk and GPU canvas on
+  // mobile, reduced-motion, data-saver and low-resource devices.
+  useEffect(() => {
+    const wideViewport = window.matchMedia("(min-width: 821px)");
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const update = () => {
+      const hints = navigator as Navigator & {
+        connection?: { saveData?: boolean };
+        deviceMemory?: number;
+      };
+      setRenderHeroScene(shouldRenderHeroScene({
+        isWideViewport: wideViewport.matches,
+        reducedMotion: reducedMotion.matches,
+        saveData: hints.connection?.saveData === true,
+        deviceMemoryGB: hints.deviceMemory,
+        hardwareConcurrency: navigator.hardwareConcurrency,
+      }));
+    };
+    update();
+    wideViewport.addEventListener("change", update);
+    reducedMotion.addEventListener("change", update);
+    return () => {
+      wideViewport.removeEventListener("change", update);
+      reducedMotion.removeEventListener("change", update);
+    };
+  }, []);
+
+  useEffect(() => {
     const move = (e: PointerEvent) => {
       root.current?.style.setProperty("--x", `${e.clientX}px`);
       root.current?.style.setProperty("--y", `${e.clientY}px`);
@@ -157,7 +197,7 @@ export default function Home() {
       <main>
         <section id="top" className="hero">
           <div className="hero-grid" />
-          <div className="hero-scene"><HeroScene /></div>
+          <div className="hero-scene" aria-hidden="true">{renderHeroScene ? <HeroScene /> : null}</div>
           <div className="hero-copy">
             <p className="kicker hero-in">SHORT-FORM DISTRIBUTION / CLIPPING / DEVICE OPS</p>
             <h1>
@@ -314,23 +354,36 @@ export default function Home() {
             <div className="contact-meta">CLIPPING / MASS POSTING / DEVICE OPS / REPORTING</div>
           </div>
 
-          <form className="lead-form reveal" onSubmit={async (e) => {
+          {delivery === "available" ? <form className="lead-form reveal" aria-busy={state === "sending"} onChange={() => { if (state === "error") leadIdRef.current = null; }} onSubmit={async (e) => {
             e.preventDefault();
             if (state === "sending") return;
             const form = e.currentTarget;
-            const payload = Object.fromEntries(new FormData(form).entries());
+            const params = new URLSearchParams(window.location.search);
+            const attribution = Object.fromEntries(
+              [["utmSource", "utm_source"], ["utmMedium", "utm_medium"], ["utmCampaign", "utm_campaign"], ["utmContent", "utm_content"], ["utmTerm", "utm_term"]]
+                .map(([field, param]) => [field, params.get(param)?.slice(0, 120) || ""])
+                .filter(([, value]) => Boolean(value))
+            );
+            const leadId = leadIdRef.current ?? crypto.randomUUID();
+            leadIdRef.current = leadId;
+            const payload = { ...Object.fromEntries(new FormData(form).entries()), leadId, ...attribution };
             setState("sending");
             track("lead_submit", { service: payload.service, volume: payload.volume });
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 12000);
             try {
-              const res = await fetch("/api/lead", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+              const res = await fetch("/api/lead", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload), signal: controller.signal, redirect: "error" });
               if (!res.ok) throw new Error("submit");
               setState("sent");
               track("lead_success", { service: payload.service });
               form.reset();
+              leadIdRef.current = null;
               setService("");
             } catch {
               setState("error");
               track("lead_error");
+            } finally {
+              clearTimeout(timeout);
             }
           }}>
             <div className="form-head"><span>CAMPAIGN BRIEF</span><span>100X/26</span></div>
@@ -361,11 +414,16 @@ export default function Home() {
               <option>Build an always-on content operation</option>
             </select></label>
             <label><span>Anything we should know? <em>Optional</em></span><textarea name="brief" rows={3} placeholder="Content source, platforms, current bottleneck…"/></label>
-            <button className="submit" type="submit"><span>{state === "sending" ? "Sending…" : state === "sent" ? "Brief sent" : formCta}</span><b>{state === "sent" ? "✓" : "↗"}</b></button>
-            {state === "sent" && <p className="status ok">Brief received. We have the scope inputs.</p>}
-            {state === "error" && <p className="status bad">Could not send. Check the lead webhook configuration and try again.</p>}
+            <button className="submit" type="submit" disabled={state === "sending" || state === "sent"}><span>{state === "sending" ? "Sending…" : state === "sent" ? "Brief sent" : formCta}</span><b>{state === "sent" ? "✓" : "↗"}</b></button>
+            {state === "sent" && <p className="status ok" role="status">Brief received. We have the scope inputs.</p>}
+            {state === "error" && <p className="status bad" role="alert">Delivery could not be confirmed. Please retry; unchanged details keep the same lead ID.</p>}
             <p className="form-note">APPROVED ACCOUNTS ONLY / NO BOT VIEWS / NO PURCHASED ENGAGEMENT / SCOPE FIRST</p>
-          </form>
+          </form> : <div className="lead-unavailable" role="status" aria-live="polite">
+            <div className="form-head"><span>CAMPAIGN BRIEF</span><span>100X/26</span></div>
+            <h3>{delivery === "checking" ? "Checking secure delivery…" : "Campaign briefs temporarily unavailable"}</h3>
+            <p>{delivery === "checking" ? "Verifying the enquiry destination before collecting your details." : "The secure campaign-brief form is temporarily unavailable. You can still contact Relay Digital directly by email; your email app will open a draft for you to review and send."}</p>
+            {delivery === "unavailable" && <a className="email-fallback" href="mailto:support@relaydigital.agency?subject=100xReach%20campaign%20enquiry&body=Hi%20Relay%20Digital%2C%0A%0AWe%27d%20like%20to%20discuss%20a%20100xReach%20campaign.%0A%0AOur%20content%20source%3A%20%0ATarget%20platforms%3A%20%0AMonthly%20output%3A%20%0AGoal%3A%20%0A%0A" onClick={() => track("cta_click", { placement: "email_fallback" })}>Email the campaign team ↗</a>}
+          </div>}
         </section>
       </main>
 
