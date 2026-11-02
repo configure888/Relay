@@ -205,3 +205,10 @@ footer .brand{color:#fff}
   *{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
   .cursor-glow{display:none}
 }
+
+/* Match the existing campaign brief visual language when delivery is unavailable. */
+.lead-unavailable{border:1px solid var(--line2);background:rgba(10,10,14,.86);padding:28px;align-self:start;min-height:220px}
+.lead-unavailable h3{font-size:clamp(1.45rem,2.5vw,2.25rem);line-height:1.08;letter-spacing:-.04em;margin:0 0 18px}
+.lead-unavailable p{color:#b5b7c0;line-height:1.6;margin:0}
+.submit:disabled{cursor:wait;opacity:.7}
+.submit:focus-visible,.nav a:focus-visible,.btn:focus-visible,.offer a:focus-visible,.sticky-cta:focus-visible{outline:3px solid var(--cyan);outline-offset:4px}
